@@ -293,8 +293,8 @@ export default defineComponent({
       function getFeeRate(t) {
         // 遍历规则数组，找到第一个满足条件的区间
         for (let fee of fees) {
-          if ((fee.left === null || t >= fee.left) && (fee.right === null || t < -fee.right + 1)) {
-            return fee.rate;
+          if ((t >= fee.left) && (fee.right === null || t < fee.right + 1)) {
+            return fee.rate
           }
         }
         
@@ -317,13 +317,13 @@ export default defineComponent({
         // 获取买入手续费率
         const buyFeeRate = parseFloat(fundData.value.find(item => item.id === newTransaction.value.id).buy)
         // 获取卖出手续费计算规则
-        const sellFeeRateRule = fundData.value.find(item => item.id === newTransaction.value.id).sell
+        const sellFeeRateRuleJson = fundData.value.find(item => item.id === newTransaction.value.id).sell
         // 当净值低于今日净值时
         if(parseFloat(newTransaction.value.value) > parseFloat(theTransactionData[i].value)){
           // 计算今日距离买入日的时间
           const t = (new Date().setHours(0, 0, 0, 0) - new Date(theTransactionData[i].time).setHours(0, 0, 0, 0))/(1000 * 60 * 60 * 24)
-          const sellFeeRate = parseFeeRules(sellFeeRateRule)(t)
-          console.log('sellFeeRate',sellFeeRate)
+          const sellFeeRate = parseFeeRules(sellFeeRateRuleJson)(t)
+          console.log('sellFeeRate', sellFeeRate, new Date(theTransactionData[i].time), theTransactionData[i].time)
         }
       }
 
