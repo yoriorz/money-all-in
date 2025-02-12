@@ -45,7 +45,7 @@
       </template>
       <div>基金名：
         <el-select
-          v-model="newTransaction.id"
+          v-model="selectedTransactionId"
           placeholder="请选择基金文件"
           style="width: 240px"
         >
@@ -60,24 +60,45 @@
       <div>基金净值：<el-input v-model="newTransaction.value" style="width: 229px" placeholder="请输入净值" /></div>
       <div>买入/卖出份额：<el-input v-model="newTransaction.share" style="width: 195px" placeholder="请输入份额" /></div>
       <div class="block">
-          <div class="demonstration">交易日期:
-            <el-date-picker
-              v-model="newTransaction.time"
-              type="datetime"
-              placeholder="选择日期"
-              format="YYYY/MM/DD"
-              value-format="x"
-            />
-          </div>
+        <div class="demonstration">交易日期:
+          <el-date-picker
+            v-model="newTransaction.time"
+            type="datetime"
+            placeholder="选择日期"
+            format="YYYY/MM/DD"
+            value-format="x"
+          />
         </div>
-      <div>
-        <el-button @click="sellIt">卖出</el-button>
+      </div>
+      <el-dialog
+        v-model="availableForSaleVisible"
+        title="最优卖出份额及其最大收益为："
+        width="400"
+      >
+      <div>建议卖{{result.optimalShares}}份</div>
+      <div>此时的收益为最大：{{result.maxProfit}}</div>
+        <template #footer>
+          <div class="dialog-footer">
+            <el-button @click="availableForSale = false">取消</el-button>
+          </div>
+        </template>
+      </el-dialog>
+      <template #footer>
         <el-button @click="buyIt">买入</el-button>
-        <br>
         <el-button @click="exportToExcel(newTransaction.name)">导出表格</el-button>
         <el-button @click="calculatingSale">计算卖出收益</el-button>
-      </div>
+      </template>
     </el-card>
+
+    <el-table :data="theTransac" border style="width: 100%">
+      <el-table-column prop="value" label="净值" width="78" />
+      <el-table-column prop="share" label="份额" width="80" />
+      <el-table-column label="交易日期" width="300">
+        <template #default="scope">
+          <span>{{ dataFormat(scope.row.time) }}</span>
+        </template>
+      </el-table-column>
+    </el-table>
  
     <div>
   </div>
@@ -86,7 +107,7 @@
 
 <script>
 
-import { defineComponent, onMounted, ref } from 'vue'
+import { defineComponent, onMounted, watch, ref } from 'vue'
 import { useStore } from 'vuex'
 import { useRouter } from 'vue-router'
 import * as XLSX from 'xlsx'
@@ -103,6 +124,7 @@ export default defineComponent({
     const store = useStore()
     const fundData = ref([])
     const transactionData = ref([])
+    const selectedTransactionId = ref(null)
     const newTransaction = ref({
       id: '',
       value: '',
@@ -120,7 +142,36 @@ export default defineComponent({
       sell3: ''
     })
     const dialogVisible = ref(false)
+    const availableForSaleVisible = ref(false)
     const headers = ref([])
+    const result = ref({
+      optimalShares: 0,
+      maxProfit: 0
+    })
+    const theTransac = ref([])
+
+    // 监听 selectedTransactionId 的变化
+    watch(() => selectedTransactionId.value, (newVal, oldVal) => {
+      if (newVal !== oldVal) {
+        for(let i of transactionData.value){
+          if(i[0].id === selectedTransactionId.value){
+            theTransac.value = i
+          }
+        }
+      }
+    }, { immediate: true })
+    // 同步 selectedTransactionId 和 newTransaction.id
+    watch(() => selectedTransactionId.value, (newVal) => {
+      newTransaction.value.id = newVal
+    }, { immediate: true }); // 立即执行一次以同步初始值
+
+    const dataFormat = (time)=> {
+      time = new Date(parseFloat(time))
+      const year = time.getFullYear()
+      const month = time.getMonth()
+      const day = time.getDate()
+      return `${year}-${month + 1}-${day}`
+    }
 
     // 获取基金数据
     const handleFundDataFileUpload = async (event) => {
@@ -166,6 +217,7 @@ export default defineComponent({
       reader.readAsArrayBuffer(file)
     }
 
+    // 增加基金
     const addFund = () => {
       dialogVisible.value = false
       newFund.value.sell = [newFund.value.sell1, newFund.value.sell2, newFund.value.sell3].filter(value => value != null && value !== "")
@@ -189,13 +241,14 @@ export default defineComponent({
       // 给fundData里删除一个基金
     }
 
+    // 增加买入记录
     const buyIt = () => {
       // 先拉取该基金的表格
       // 将基金加入transactionData数组
       // 筛选transactionData中对应的name，再push
       let findId = false
       for(let i of transactionData.value){
-        if(i[0].id === newTransaction.value.id){
+        if(i[0] && i[0].id === newTransaction.value.id){
           findId = true
           i.push(newTransaction.value)
         }
@@ -221,52 +274,33 @@ export default defineComponent({
       // 从文件夹里拉数据
       // 然后计算当前盈亏
     }
-    const holdingFund = ref([
-      { id: '007467', name: '华泰柏瑞中证红利低波动ETF联接C',
-      buy:['0'],
-      sell:['(t>=0,t<7),1.5%','(t>=7,t<30),0.1%','(t>=30),0%']
-      },
-      { id: '000307', name: '易方达黄金ETF联接A',
-        buy:['0.7%'],
-        sell:['(t>=0,t<7),1.5%','(t>=7,t<365),0.2%','(t>=365,t<730),0.05%','(t>=730),0%']
-      },
-      { id: '011854', name: '招商中证消费龙头指数增强C',
-        buy:['0'],
-        sell:['(t>=0,t<7),1.5%','(t>=7,t<30),0.1%','(t>=30),0%']
-      },
-      { id: '001632', name: '天弘中证食品饮料ETF链接C',
-        buy:['0'],
-        sell:['(t>=0,t<7),1.5%','(t>=7),0%']
-      },
-      { id: '022463', name: '富国中证A500ETF联接A',
-        buy:['1.2%'],
-        sell:['(t>=0,t<7),1.5%','(t>=7),0%'] },
-      { id: '161027', name: '富国中证全指证券公司指数（LOF）A',
-        buy:['1.2%'],
-        sell:['(t>=0,t<7),1.5%','(t>=7),0.5%'] }
-    ])
 
+    // 导出数据表
     const exportToExcel = () => {
       // 将数据转换为工作表
       // 将buy和sell字段从数组转换为字符串
       fundData.value = fundData.value.map(fund => ({
         ...fund,
         buy: fund.buy,
-        sell: fund.sell.join(',')
+        sell: typeof fund.sell === 'string' ? fund.sell : fund.sell.join(',')
       }))
       let ws = XLSX.utils.json_to_sheet(fundData.value)
       // 创建一个新的工作簿并将工作表添加到其中
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, ws, 'Sheet1')
+      console.log('transactionData', transactionData.value)
       // 遍历transactionData的数组
-      for(let i of transactionData.value){
-        ws = XLSX.utils.json_to_sheet(i)
-        XLSX.utils.book_append_sheet(wb, ws, i[0].id)
-      }
+      if (transactionData.value[0][0]){
+        for(let i of transactionData.value){
+          ws = XLSX.utils.json_to_sheet(i)
+          XLSX.utils.book_append_sheet(wb, ws, i[0].id)
+        }
+      } 
       // 生成Excel文件并触发下载
       XLSX.writeFile(wb, 'holdingFund.xlsx')
     }
 
+    // 解析手续费规则
     const parseFeeRules = (rules) => {
       // 创建一个数组来存储解析后的规则
       const fees = []
@@ -289,22 +323,97 @@ export default defineComponent({
         // 将解析后的规则添加到数组中
         fees.push({ left, right, rate })
       }
-      // 定义一个函数，根据天数t返回手续费率
-      function getFeeRate(t) {
-        // 遍历规则数组，找到第一个满足条件的区间
-        for (let fee of fees) {
-          if ((t >= fee.left) && (fee.right === null || t < fee.right + 1)) {
-            return fee.rate
+      return fees
+    }
+    
+    // 计算最优卖出份额及其最大收益
+    const calculateOptimalSell = (transactions, currentPrice, currentDate, feeRules) => {
+      // 将日期字符串转换为日期对象
+      const parseDate = (dateStr) => new Date(parseFloat(dateStr)).setHours(0, 0, 0, 0)
+      
+      // 计算持有天数
+      const calculateHoldingDays = (buyDate, sellDate) => {
+          const timeDiff = sellDate - buyDate
+          return Math.floor(timeDiff / (1000 * 60 * 60 * 24)) // 转换为天数
+      }
+
+      // 按 FIFO 原则计算当前持有份额
+      const currentHoldings = []
+      for (const transaction of transactions) { // 遍历交易记录
+        const { time, share, value } = transaction
+        const transactionDate = parseDate(time)
+        if (share > 0) {  // 买入份额
+          currentHoldings.push({ time: transactionDate, share, value })
+        } else { // 卖出份额（按 FIFO 扣除）
+          let remainingShares = -share // 剩余扣除份额
+          while (remainingShares > 0 && currentHoldings.length > 0){
+            const earliestHolding = currentHoldings[0] // 先取最早的份额
+            if (earliestHolding.share > remainingShares) {
+              earliestHolding.share -= remainingShares
+              remainingShares = 0
+            } else {
+              remainingShares -= earliestHolding.share
+              currentHoldings.shift() // 移除已完全卖出的份额
+            }
           }
         }
-        
-        // 如果没有找到匹配的区间，则返回一个默认值（这里假设为0%，但根据实际情况可能需要调整）
-        return 0;
       }
-      return getFeeRate
+      
+      // 计算平均买入成本
+      const totalBuyShares = currentHoldings.reduce((sum, h) => sum + parseFloat(h.share), 0) // 目前所持有的全部份额
+      const totalBuyCost = currentHoldings.reduce((sum, h) => sum + h.share * h.value, 0) // 买所有份额的花费
+      const avgCost = totalBuyCost / totalBuyShares
+
+      // 根据持有天数和手续费规则分组
+      const currentDateObj = currentDate.setHours(0, 0, 0, 0)
+      const groupedShares = feeRules.map(rule => ({
+        ...rule,
+        shares: 0, // 初始化份额
+      }))
+      // 分组计算收益
+      for (const holding of currentHoldings) {
+        const holdingDays = calculateHoldingDays(holding.time, currentDateObj)
+        for (const group of groupedShares) { // 根据阶梯分组计算
+          const {left, right} = group
+          if (holdingDays >= left && (!right || holdingDays < right)) {
+            group.shares += parseFloat(holding.share)
+            break; // 找到匹配的组后跳出循环
+          }
+        }
+      }
+      // 计算不同卖出份额的净收益
+      let maxProfit = -Infinity
+      let optimalShares = 0
+
+      // 卖出全部份额
+      const totalShares = groupedShares.reduce((sum, group) => sum + group.shares, 0)
+      for (let q = 0; q <= totalShares; q++) {
+        let remainingShares = q
+        let profit = 0
+        // 按手续费从低到高的顺序卖出
+        for (const group of groupedShares.sort((a, b) => a.rate - b.rate)) {
+          const sellShares = Math.min(remainingShares, group.shares) 
+          profit += sellShares * currentPrice * (1 - group.rate) // 扣除手续费
+          remainingShares -= sellShares
+          if (remainingShares === 0) break // 卖出完毕
+        }
+
+        // 扣除成本
+        profit -= q * avgCost
+        // 更新最优解
+        if (profit > maxProfit) {
+          maxProfit = profit
+          optimalShares = q
+        }
+      }
+      return {
+        optimalShares,
+        maxProfit: parseFloat(maxProfit.toFixed(2)) // 保留两位小数
+      }
     }
 
     const calculatingSale = () => {
+      availableForSaleVisible.value = true
       let theTransactionData
       // 从transactionData找到匹配newTransaction.id的买入记录列表
       for(let i of transactionData.value){
@@ -312,32 +421,17 @@ export default defineComponent({
           theTransactionData = i
         }
       }
-      // 筛选出比今日净值低的数据newTransaction
-      for(let i = 0; i < theTransactionData.length; i++){
-        // 获取买入手续费率
-        const buyFeeRate = parseFloat(fundData.value.find(item => item.id === newTransaction.value.id).buy)
-        // 获取卖出手续费计算规则
-        const sellFeeRateRuleJson = fundData.value.find(item => item.id === newTransaction.value.id).sell
-        // 当净值低于今日净值时
-        if(parseFloat(newTransaction.value.value) > parseFloat(theTransactionData[i].value)){
-          // 计算今日距离买入日的时间
-          const t = (new Date().setHours(0, 0, 0, 0) - new Date(theTransactionData[i].time).setHours(0, 0, 0, 0))/(1000 * 60 * 60 * 24)
-          const sellFeeRate = parseFeeRules(sellFeeRateRuleJson)(t)
-          console.log('sellFeeRate', sellFeeRate, new Date(theTransactionData[i].time), theTransactionData[i].time)
-        }
-      }
-
-      // 计算����
-      // 假设transactionData是[{id:'007467', value:['2022-01-01', '100', '1000', '2022-01-05'], share:'100', time:'0'}]
-      // 假设holdingFund是[{id:'007467', buy:'0', sell:'(t>=0,t<7),1.5%'}]
-      // 假设fundData是[{id:'007467', name:'华������中证红利低波动ETF联接C', buy:['0'], sell:['(t>=0,t<7),1.5%']}]
+      // 获取卖出手续费计算规则
+      const sellFeeRateRuleJson = fundData.value.find(item => item.id === newTransaction.value.id).sell
+      const sellFeeRateRule = parseFeeRules(sellFeeRateRuleJson)
+      result.value = calculateOptimalSell(theTransactionData, parseFloat(newTransaction.value.value), new Date(), sellFeeRateRule)
     }
-    
     onMounted(async () => {
     })
     return {
       store,
       buyIt,
+      theTransac,
       excelData,
       fundData,
       exportToExcel,
@@ -348,6 +442,10 @@ export default defineComponent({
       deleteFund,
       dialogVisible,
       calculatingSale,
+      result,
+      availableForSaleVisible,
+      selectedTransactionId,
+      dataFormat,
       sellIt
     }
   }
