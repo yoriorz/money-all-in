@@ -116,7 +116,9 @@
         </template>
       </el-table-column>
     </el-table>
- 
+    <br>
+    <div v-if="selectedTransactionHoldingShare">持有：{{ selectedTransactionHoldingShare }}</div>
+    <div v-if="selectedTransactionSellShare">已卖出：{{ selectedTransactionSellShare }}</div>
     <div>
   </div>
   </div>
@@ -142,6 +144,8 @@ export default defineComponent({
     const fundData = ref([])
     const transactionData = ref([])
     const selectedTransactionId = ref(null)
+    const selectedTransactionSellShare = ref(null)
+    const selectedTransactionHoldingShare = ref(null)
     const newTransaction = ref({
       id: '',
       value: '',
@@ -183,6 +187,17 @@ export default defineComponent({
             theTransac.value = i
           }
         }
+        // 计算目前一共有多少份
+        let share = 0
+        let sellShare = 0
+        for(let i of theTransac.value){
+          share += i.share
+          if(i.share < 0){
+            sellShare += i.share
+          }
+        }
+        selectedTransactionHoldingShare.value = share
+        selectedTransactionSellShare.value = sellShare
       }
     }, { immediate: true })
     // 同步 selectedTransactionId 和 newTransaction.id
@@ -278,14 +293,19 @@ export default defineComponent({
 
     // 增加买入记录
     const buyIt = () => {
-      // 先拉取该基金的表格
-      // 将基金加入transactionData数组
       // 筛选transactionData中对应的name，再push
       let findId = false
       for(let i of transactionData.value){
         if(i[0] && i[0].id === newTransaction.value.id){
           findId = true
           i.push(newTransaction.value)
+        }
+      }
+      // 判断是否为卖出
+      if(newTransaction.value.share < 0){
+        // 判断是否为全部卖出
+        if(-newTransaction.value.share < selectedTransactionHoldingShare.value){
+          // 则需要标记t
         }
       }
       if(!findId){
@@ -365,8 +385,6 @@ export default defineComponent({
     const calculateOptimalSell = (transactions, currentPrice, currentDate, feeRules) => {
       // 将日期字符串转换为日期对象
       const parseDate = (dateStr) => new Date(parseFloat(dateStr)).setHours(0, 0, 0, 0)
-      
-      
 
       // 按 FIFO 原则计算当前持有份额
       const currentHoldings = []
@@ -617,6 +635,8 @@ export default defineComponent({
       dataFormat,
       calculatingSaleOnT,
       maxProfitT,
+      selectedTransactionHoldingShare,
+      selectedTransactionSellShare,
       sellIt
     }
   }
