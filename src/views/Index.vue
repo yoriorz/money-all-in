@@ -21,6 +21,7 @@
         <el-input v-model="newFund.sell1" style="width: 240px" placeholder="请输入第一区间卖出手续费" />
         <el-input v-model="newFund.sell2" style="width: 240px" placeholder="请输入第二区间卖出手续费" />
         <el-input v-model="newFund.sell3" style="width: 240px" placeholder="请输入第三区间卖出手续费" />
+        <el-input v-model="newFund.sell4" style="width: 240px" placeholder="请输入第四区间卖出手续费" />
         <template #footer>
           <div class="dialog-footer">
             <el-button @click="dialogVisible = false">取消</el-button>
@@ -72,27 +73,43 @@
       </div>
       <el-dialog
         v-model="availableForSaleVisible"
-        title="最优卖出份额及其最大收益为："
+        title="根据长期利益计算卖出收益"
         width="400"
       >
       <div>建议卖{{result.optimalShares}}份</div>
       <div>此时的收益为最大：{{result.maxProfit}}</div>
         <template #footer>
           <div class="dialog-footer">
-            <el-button @click="availableForSale = false">取消</el-button>
+            <el-button @click="availableForSaleVisible = false">取消</el-button>
+          </div>
+        </template>
+      </el-dialog>
+      <el-dialog
+        v-model="availableForSaleVisibleT"
+        title="根据做t计算收益"
+        width="400"
+      >
+        <div>建议卖{{maxProfitT.bestTValuableShare}}份</div>
+        <div>此时的收益为：{{maxProfitT.maxProfit}}</div>
+        <div>买入花费：{{maxProfitT.bestBuyCost}}</div>
+        <div>买出获得：{{maxProfitT.bestSellAmount}}</div>
+        <template #footer>
+          <div class="dialog-footer">
+            <el-button @click="availableForSaleVisibleT = false">取消</el-button>
           </div>
         </template>
       </el-dialog>
       <template #footer>
         <el-button @click="buyIt">买入</el-button>
         <el-button @click="exportToExcel(newTransaction.name)">导出表格</el-button>
-        <el-button @click="calculatingSale">计算卖出收益</el-button>
+        <el-button @click="calculatingSale">根据长期利益计算卖出收益</el-button>
+        <el-button @click="calculatingSaleOnT">根据做t计算收益</el-button>
       </template>
     </el-card>
 
     <el-table :data="theTransac" border style="width: 100%">
       <el-table-column prop="value" label="净值" width="78" />
-      <el-table-column prop="share" label="份额" width="80" />
+      <el-table-column prop="share" label="份额" width="100" />
       <el-table-column label="交易日期" width="300">
         <template #default="scope">
           <span>{{ dataFormat(scope.row.time) }}</span>
@@ -139,16 +156,24 @@ export default defineComponent({
       sell:[],
       sell1: '',
       sell2: '',
-      sell3: ''
+      sell3: '',
+      sell4: ''
     })
     const dialogVisible = ref(false)
     const availableForSaleVisible = ref(false)
+    const availableForSaleVisibleT = ref(false)
     const headers = ref([])
     const result = ref({
       optimalShares: 0,
       maxProfit: 0
     })
     const theTransac = ref([])
+    const maxProfitT = ref({
+      bestTValuableShare: 0,
+      maxProfit: 0,
+      bestBuyCost: 0,
+      bestSellAmount: 0
+    })
 
     // 监听 selectedTransactionId 的变化
     watch(() => selectedTransactionId.value, (newVal, oldVal) => {
@@ -171,6 +196,12 @@ export default defineComponent({
       const month = time.getMonth()
       const day = time.getDate()
       return `${year}-${month + 1}-${day}`
+    }
+
+    // 计算持有天数
+    const calculateHoldingDays = (buyDate, sellDate) => {
+      const timeDiff = sellDate - buyDate
+      return Math.floor(timeDiff / (1000 * 60 * 60 * 24)) // 转换为天数
     }
 
     // 获取基金数据
@@ -203,14 +234,16 @@ export default defineComponent({
             SheetName = workbook.SheetNames[i]
             worksheet = workbook.Sheets[SheetName]
             let transactionJsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) // 将工作表转换为JSON
-            transactionJsonData.value = transactionJsonData.slice(1) // 跳过表头行
-            transactionJsonData.value = transactionJsonData.value.map(item => ({
+            transactionJsonData = transactionJsonData.slice(1) // 跳过表头行
+            transactionJsonData = transactionJsonData.map(item => ({
               id: item[0],
-              value: item[1],
-              share: item[2],
-              time: item[3]
+              value: parseFloat(item[1]),
+              share: parseFloat(item[2]),
+              time: parseFloat(item[3]),
+              isT: item[4]? item[4]: null,
+              Tshare: item[5]? parseFloat(item[5]): null
             }))
-            transactionData.value.push(transactionJsonData.value)
+            transactionData.value.push(transactionJsonData)
           }
         }
       }
@@ -220,10 +253,11 @@ export default defineComponent({
     // 增加基金
     const addFund = () => {
       dialogVisible.value = false
-      newFund.value.sell = [newFund.value.sell1, newFund.value.sell2, newFund.value.sell3].filter(value => value != null && value !== "")
+      newFund.value.sell = [newFund.value.sell1, newFund.value.sell2, newFund.value.sell3,  newFund.value.sell4].filter(value => value != null && value !== "")
       delete newFund.value.sell1
       delete newFund.value.sell2
       delete newFund.value.sell3
+      delete newFund.value.sell4
       // 给fundData里增加newFund基金
       fundData.value.push(newFund.value)
       newFund.value = {
@@ -233,7 +267,8 @@ export default defineComponent({
         sell:[],
         sell1: '',
         sell2: '',
-        sell3: ''
+        sell3: '',
+        sell4: ''
       }
     }
 
@@ -331,11 +366,7 @@ export default defineComponent({
       // 将日期字符串转换为日期对象
       const parseDate = (dateStr) => new Date(parseFloat(dateStr)).setHours(0, 0, 0, 0)
       
-      // 计算持有天数
-      const calculateHoldingDays = (buyDate, sellDate) => {
-          const timeDiff = sellDate - buyDate
-          return Math.floor(timeDiff / (1000 * 60 * 60 * 24)) // 转换为天数
-      }
+      
 
       // 按 FIFO 原则计算当前持有份额
       const currentHoldings = []
@@ -426,6 +457,143 @@ export default defineComponent({
       const sellFeeRateRule = parseFeeRules(sellFeeRateRuleJson)
       result.value = calculateOptimalSell(theTransactionData, parseFloat(newTransaction.value.value), new Date(), sellFeeRateRule)
     }
+
+    // 根据做t计算收益
+    const calculatingSaleOnT = () => {
+      availableForSaleVisibleT.value = true
+      // 1. 数据处理：生成 Tlist
+      function generateTlist(transactions) {
+        let trans = transactions.map(item => 
+          {
+            return {
+              id: item.id,
+              time: item.time,
+              share: item.share,
+              value: item.value,
+              isT: item.isT,
+              Tshare: item.Tshare
+            }
+          }
+        )
+        return trans
+            .filter(record => record.share > 0) // 只保留买入记录
+            .map(record => {
+                if (record.isT) {
+                    record.share -= record.Tshare // 扣除 T 掉的份额
+                }
+                return record;
+            })
+            .filter(record => record.share > 0); // 只保留份额大于 0 的记录
+      }
+      // 1. 数据处理：生成 realList
+      function generateRealList(transactions) {
+        let trans = transactions.map(item => 
+          {
+            return {
+              id: item.id,
+              time: item.time,
+              share: item.share,
+              value: item.value,
+              isT: item.isT,
+              Tshare: item.Tshare
+            }
+          }
+        )
+        const buyRecords = trans
+            .filter(record => record.share > 0)
+            .sort((a, b) => new Date(a.time) - new Date(b.time)); // 按时间排序，先进先出
+
+        const sellRecords = trans
+            .filter(record => record.share < 0)
+            .sort((a, b) => new Date(a.time) - new Date(b.time)); // 按时间排序
+        
+
+        sellRecords.forEach(sellRecord => {
+            let sellShare = sellRecord.share;
+            for (let buyRecord of buyRecords) {
+                if (buyRecord.share >= -sellShare) {
+                    buyRecord.share += sellShare;
+                    break;
+                } else {
+                    sellShare += buyRecord.share;
+                    buyRecord.share = 0;
+                }
+            }
+        })
+
+          return buyRecords.filter(record => record.share > 0) // 只保留份额大于 0 的记录
+      }
+
+      // 2. 计算 TValuableShare
+      function calculateTValuableShare(Tlist, todayNav) {
+          return Tlist
+            .filter(record => record.value < todayNav) // 筛选净值低于今日净值的记录
+            .reduce((sum, record) => sum + record.share, 0) // 计算总份额
+      }
+
+      // 3. 计算收益
+      function calculateProfit(i, Tlist, realList, sellFeeRateRule, buyFeeRate) {
+        // 获取买入成本（按净值从小到大）
+        let share = i
+        const buyCost = Tlist
+          .sort((a, b) => a.value - b.value) // 按净值从小到大排序
+          .reduce((cost, record) => {
+              const usedShare = Math.min(record.share, share)
+              share -= usedShare
+              return cost + record.value * usedShare
+          }, 0)
+
+        // 获取卖出金额（先进先出）
+        share = i
+        const sellAmount = realList
+          .reduce((amount, record) => {
+              const usedShare = Math.min(record.share, share)
+              share -= usedShare
+              const holdingDays = calculateHoldingDays(record.time, new Date().setHours(0, 0, 0, 0))
+              for(const sellFeeRate of sellFeeRateRule){
+                const {left, right} = sellFeeRate
+                if (holdingDays >= left && (!right || holdingDays < right)) {
+                  return amount + record.value * usedShare * (1 - sellFeeRate.rate)
+                }
+              }
+          }, 0)
+
+        // 计算收益
+        const profit = sellAmount - buyCost * (1 + buyFeeRate)
+        return { profit, buyCost, sellAmount }
+      }
+
+      // 4. 遍历 TValuableShare 求最大收益
+      function findMaxProfit(TValuableShare, Tlist, realList, sellFeeRate, buyFeeRate) {
+        let maxProfit = 0;
+        let bestI = 0;
+        let bestBuyCost = 0;
+        let bestSellAmount = 0;
+        for (let i = 0; i <= TValuableShare; i++) {
+            const { profit, buyCost, sellAmount } = calculateProfit(i, Tlist, realList, sellFeeRate, buyFeeRate);
+            if (profit > maxProfit) {
+                maxProfit = profit;
+                bestI = i;
+                bestBuyCost = buyCost;
+                bestSellAmount = sellAmount;
+            }
+        }
+        return { bestI, maxProfit, bestBuyCost, bestSellAmount }
+      }
+
+      const Tlist = generateTlist(theTransac.value)
+      const realList = generateRealList(theTransac.value)
+      const sellFeeRateRuleJson = fundData.value.find(item => item.id === newTransaction.value.id).sell
+      const sellFeeRateRule = parseFeeRules(sellFeeRateRuleJson)
+      const TValuableShare = calculateTValuableShare(Tlist, newTransaction.value.value)
+      const { bestI, maxProfit, bestBuyCost, bestSellAmount } = findMaxProfit(TValuableShare, Tlist, realList, sellFeeRateRule, 0)
+      maxProfitT.value = {
+        bestTValuableShare: bestI,
+        maxProfit: parseFloat(maxProfit.toFixed(2)),
+        bestBuyCost: parseFloat(bestBuyCost.toFixed(2)),
+        bestSellAmount: parseFloat(bestSellAmount.toFixed(2))
+      }
+    }
     onMounted(async () => {
     })
     return {
@@ -444,8 +612,11 @@ export default defineComponent({
       calculatingSale,
       result,
       availableForSaleVisible,
+      availableForSaleVisibleT,
       selectedTransactionId,
       dataFormat,
+      calculatingSaleOnT,
+      maxProfitT,
       sellIt
     }
   }
