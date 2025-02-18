@@ -108,17 +108,18 @@
     </el-card>
 
     <el-table :data="theTransac" border style="width: 100%">
-      <el-table-column prop="value" label="净值" width="78" />
-      <el-table-column prop="share" label="份额" width="100" />
-      <el-table-column label="交易日期" width="300">
+      <el-table-column prop="value" label="净值" width="71" />
+      <el-table-column prop="share" label="份额" width="85" />
+      <el-table-column label="交易日期" width="104">
         <template #default="scope">
           <span>{{ dataFormat(scope.row.time) }}</span>
         </template>
       </el-table-column>
+      <el-table-column prop="Tshare" label="T份额" width="100" />
     </el-table>
     <br>
     <div v-if="selectedTransactionHoldingShare">持有：{{ selectedTransactionHoldingShare }}</div>
-    <div v-if="selectedTransactionSellShare">已卖出：{{ selectedTransactionSellShare }}</div>
+    <div v-if="selectedTransactionSellShare">已卖出：{{ -selectedTransactionSellShare }}</div>
     <div>
   </div>
   </div>
@@ -306,6 +307,54 @@ export default defineComponent({
         // 判断是否为全部卖出
         if(-newTransaction.value.share < selectedTransactionHoldingShare.value){
           // 则需要标记t
+          let share = -newTransaction.value.share
+          let Tlist = maxProfitT.value.Tlist.sort((a, b) => a.value - b.value) // 按净值从小到大排序
+          console.log('Tlist', Tlist)
+          for (let n = 0; n < Tlist.length; n++) {
+            // 判断是否为T
+            if (share >= Tlist[n].share) {
+              // 该交易记录被做T了
+              for(let i=0; i < transactionData.value.length; i++){
+                if(transactionData.value[i][0].id === selectedTransactionId.value){
+                  for(let j=0; j < transactionData.value[i].length; j++){
+                    if(transactionData.value[i][j].time === Tlist[n].time){
+                      if(transactionData.value[i][j].isT){ //证明被T过
+                        transactionData.value[i][j].Tshare += Tlist[n].share
+                      }else{
+                        transactionData.value[i][j].Tshare = Tlist[n].share
+                      }
+                      transactionData.value[i][j].isT = true
+                      break
+                    }
+                  }
+                  break
+                }
+              }
+              share -= Tlist[n].share
+            } else {
+              for(let i=0; i < transactionData.value.length; i++){
+                if(transactionData.value[i][0].id === selectedTransactionId.value){
+                  for(let j=0; j < transactionData.value[i].length; j++){
+                    if(transactionData.value[i][j].time === Tlist[n].time){
+                      if(transactionData.value[i][j].isT){
+                        transactionData.value[i][j].Tshare += share
+                      }else {
+                        transactionData.value[i][j].Tshare = share
+                      }
+                      transactionData.value[i][j].isT = true
+                      break
+                    }
+                  }
+                  break
+                }
+              }
+              share = 0
+            }
+            // 给对应的交易标记 record.time
+            if (share <= 0) {
+              break
+            }
+          }
         }
       }
       if(!findId){
@@ -609,7 +658,8 @@ export default defineComponent({
         bestTValuableShare: bestI,
         maxProfit: parseFloat(maxProfit.toFixed(2)),
         bestBuyCost: parseFloat(bestBuyCost.toFixed(2)),
-        bestSellAmount: parseFloat(bestSellAmount.toFixed(2))
+        bestSellAmount: parseFloat(bestSellAmount.toFixed(2)),
+        Tlist
       }
     }
     onMounted(async () => {
